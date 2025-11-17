@@ -1,0 +1,138 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  passwordHash String
+  age       Int?
+  location  String?
+  timeZone  String?
+  bio       String?
+  avatarUrl String?
+  preferredMode String? // "ONLINE" | "IN_PERSON" | "EITHER"
+  availability String? // JSON string for availability
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  skills      UserSkill[]
+  matchesA    Match[] @relation("UserAMatches")
+  matchesB    Match[] @relation("UserBMatches")
+  sessionsCreated Session[] @relation("CreatedBy")
+  messages    Message[]
+  feedbackGiven Feedback[] @relation("FromUser")
+  feedbackReceived Feedback[] @relation("ToUser")
+
+  @@map("users")
+}
+
+model Skill {
+  id       String @id @default(cuid())
+  name     String @unique
+  category String? // "Tech", "Arts", "Language", "Fitness", etc.
+  
+  userSkills UserSkill[]
+  sessions   Session[]
+
+  @@map("skills")
+}
+
+model UserSkill {
+  id     String @id @default(cuid())
+  userId String
+  skillId String
+  type   String // "TEACH" | "LEARN"
+  level  String // "Beginner" | "Intermediate" | "Advanced" | "Expert"
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill  Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skillId, type])
+  @@map("user_skills")
+}
+
+model Match {
+  id            String   @id @default(cuid())
+  userAId       String
+  userBId       String
+  matchedAt     DateTime @default(now())
+  status        String   @default("ACTIVE") // "ACTIVE" | "ARCHIVED"
+  overlappingTeachLearnSummary String? // Cached JSON string
+
+  userA         User     @relation("UserAMatches", fields: [userAId], references: [id])
+  userB         User     @relation("UserBMatches", fields: [userBId], references: [id])
+  
+  sessions      Session[]
+  messages      Message[]
+
+  @@unique([userAId, userBId])
+  @@map("matches")
+}
+
+model Session {
+  id              String   @id @default(cuid())
+  matchId         String
+  focusSkillId    String?
+  focusRole       String?  // "USER_A_TEACHES" | "USER_B_TEACHES"
+  dateTime        DateTime?
+  mode            String?  // "ONLINE" | "IN_PERSON"
+  locationOrLink  String?
+  goals           String?
+  status          String   @default("PROPOSED") // "PROPOSED" | "ACCEPTED" | "COMPLETED" | "CANCELLED"
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  match           Match    @relation(fields: [matchId], references: [id])
+  focusSkill      Skill?   @relation(fields: [focusSkillId], references: [id])
+  createdBy       User     @relation("CreatedBy", fields: [createdById], references: [id])
+  
+  feedback        Feedback[]
+
+  @@map("sessions")
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  matchId   String
+  senderId  String
+  content   String
+  sessionId String?
+  createdAt DateTime @default(now())
+
+  match     Match    @relation(fields: [matchId], references: [id])
+  sender    User     @relation(fields: [senderId], references: [id])
+
+  @@map("messages")
+}
+
+model Feedback {
+  id                 String   @id @default(cuid())
+  sessionId          String
+  fromUserId         String
+  toUserId           String
+  rating             Int      // 1-5
+  comment            String?
+  confidenceImproved Boolean? @default(false)
+  wouldRecommend     Boolean? @default(false)
+  createdAt          DateTime @default(now())
+
+  session            Session  @relation(fields: [sessionId], references: [id])
+  fromUser           User     @relation("FromUser", fields: [fromUserId], references: [id])
+  toUser             User     @relation("ToUser", fields: [toUserId], references: [id])
+
+  @@unique([sessionId, fromUserId, toUserId])
+  @@map("feedback")
+}
+

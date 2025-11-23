@@ -170,8 +170,16 @@ const ChatScreen = ({ route, navigation }) => {
           placeholderTextColor={colors.textLight}
           value={newMessage}
           onChangeText={setNewMessage}
-          multiline
+          multiline={Platform.OS !== 'web'}
           maxLength={500}
+          onSubmitEditing={Platform.OS !== 'web' ? handleSend : undefined}
+          blurOnSubmit={Platform.OS !== 'web'}
+          onKeyPress={(e) => {
+            if (Platform.OS === 'web' && e.nativeEvent.key === 'Enter' && !e.nativeEvent.shiftKey) {
+              e.preventDefault();
+              handleSend();
+            }
+          }}
         />
         <TouchableOpacity
           style={[styles.sendButton, (!newMessage.trim() || sending) && styles.sendButtonDisabled]}

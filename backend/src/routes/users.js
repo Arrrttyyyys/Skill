@@ -1,6 +1,7 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const authMiddleware = require('../middleware/auth');
+const upload = require('../middleware/upload');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -9,7 +10,7 @@ const prisma = new PrismaClient();
 router.put('/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     if (req.userId !== id) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
@@ -48,11 +49,46 @@ router.put('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// Upload avatar
+router.post('/:id/avatar', authMiddleware, upload.single('avatar'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.userId !== id) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Create URL for the uploaded file
+    // Assuming server runs on localhost:3001 or similar
+    // In production, this should be a full URL or relative path handled by frontend
+    const avatarUrl = `/uploads/profiles/${req.file.filename}`;
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: { avatarUrl },
+      select: {
+        id: true,
+        name: true,
+        avatarUrl: true,
+      },
+    });
+
+    res.json(user);
+  } catch (error) {
+    console.error('Upload avatar error:', error);
+    res.status(500).json({ error: 'Failed to upload avatar' });
+  }
+});
+
 // Update user skills
 router.post('/:id/skills', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     if (req.userId !== id) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
@@ -67,7 +103,7 @@ router.post('/:id/skills', authMiddleware, async (req, res) => {
     // Create new skills
     const skillPromises = skills.map(async ({ skillName, skillId, type, level }) => {
       let finalSkillId = skillId;
-      
+
       if (skillName && !skillId) {
         // Find or create skill by name
         const skill = await prisma.skill.upsert({
@@ -147,15 +183,15 @@ router.get('/:id', authMiddleware, async (req, res) => {
       if (!f.session || !f.session.focusRole) return false;
       const isUserA = f.session.match.userAId === id;
       const isTeaching = f.session.focusRole === 'USER_A_TEACHES' || f.session.focusRole === 'USER_B_TEACHES';
-      return (isUserA && f.session.focusRole === 'USER_A_TEACHES') || 
-             (!isUserA && f.session.focusRole === 'USER_B_TEACHES');
+      return (isUserA && f.session.focusRole === 'USER_A_TEACHES') ||
+        (!isUserA && f.session.focusRole === 'USER_B_TEACHES');
     });
 
     const feedbackAsLearner = allFeedback.filter(f => {
       if (!f.session || !f.session.focusRole) return false;
       const isUserA = f.session.match.userAId === id;
-      return (isUserA && f.session.focusRole === 'USER_B_TEACHES') || 
-             (!isUserA && f.session.focusRole === 'USER_A_TEACHES');
+      return (isUserA && f.session.focusRole === 'USER_B_TEACHES') ||
+        (!isUserA && f.session.focusRole === 'USER_A_TEACHES');
     });
 
     const completedSessions = await prisma.session.count({

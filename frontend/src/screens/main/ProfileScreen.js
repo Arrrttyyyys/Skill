@@ -8,17 +8,20 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  Image,
 } from 'react-native';
 import { colors } from '../../theme/colors';
 import api from '../../config/api';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import * as ImagePicker from 'expo-image-picker';
 
 const ProfileScreen = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
   const navigation = useNavigation();
 
   useEffect(() => {
@@ -32,14 +35,14 @@ const ProfileScreen = () => {
   const loadProfile = async () => {
     try {
       setLoading(true);
-      
+
       // Add timeout to prevent infinite loading
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Request timeout')), 10000)
       );
-      
+
       const fetchPromise = api.get(`/users/${user.id}`);
-      
+
       const response = await Promise.race([fetchPromise, timeoutPromise]);
       setProfile(response.data);
     } catch (error) {
@@ -48,10 +51,10 @@ const ProfileScreen = () => {
       setProfile({
         ...user,
         skills: user.skills || [],
-        stats: { 
-          completedSessions: 0, 
-          avgRatingAsTeacher: 0, 
-          avgRatingAsLearner: 0 
+        stats: {
+          completedSessions: 0,
+          avgRatingAsTeacher: 0,
+          avgRatingAsLearner: 0
         },
       });
       // Show error message after a delay
@@ -63,9 +66,79 @@ const ProfileScreen = () => {
     }
   };
 
+  const pickImage = async () => {
+    // Request permission
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission denied', 'Sorry, we need camera roll permissions to make this work!');
+      return;
+    }
+
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5,
+    });
+
+    if (!result.canceled) {
+      handleImageUpload(result.assets[0]);
+    }
+  };
+
+  const handleImageUpload = async (asset) => {
+    try {
+      setUploading(true);
+
+      // Create form data
+      const formData = new FormData();
+
+      // Get filename and type
+      const filename = asset.uri.split('/').pop();
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
+
+      // Append file
+      if (Platform.OS === 'web') {
+        // On web, we need to convert the URI to a Blob
+        const res = await fetch(asset.uri);
+        const blob = await res.blob();
+        formData.append('avatar', blob, filename);
+      } else {
+        // React Native requires uri, name, and type for file uploads
+        formData.append('avatar', {
+          uri: asset.uri,
+          name: filename,
+          type: type,
+        });
+      }
+
+      const response = await api.post(`/users/${user.id}/avatar`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      // Update local state
+      setProfile(prev => ({ ...prev, avatarUrl: response.data.avatarUrl }));
+
+      // Update auth context if needed
+      if (updateUser) {
+        updateUser({ avatarUrl: response.data.avatarUrl });
+      }
+
+      Alert.alert('Success', 'Profile picture updated!');
+    } catch (error) {
+      console.error('Upload error:', error);
+      Alert.alert('Error', 'Failed to upload profile picture');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleLogout = () => {
     console.log('handleLogout called');
-    
+
     // For web, use window.confirm; for mobile, use Alert
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const confirmed = window.confirm('Are you sure you want to log out?');
@@ -130,9 +203,21 @@ const ProfileScreen = () => {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <View style={styles.avatarContainer}>
-          <Text style={styles.avatarEmoji}>👤</Text>
-        </View>
+        <TouchableOpacity style={styles.avatarContainer} onPress={pickImage} disabled={uploading}>
+          {uploading ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : profile.avatarUrl ? (
+            <Image
+              source={{ uri: `${api.defaults.baseURL.replace('/api', '')}${profile.avatarUrl}` }}
+              style={styles.avatarImage}
+            />
+          ) : (
+            <Text style={styles.avatarEmoji}>👤</Text>
+          )}
+          <View style={styles.editBadge}>
+            <Icon name="camera" size={14} color="#FFF" />
+          </View>
+        </TouchableOpacity>
         <View style={styles.headerInfo}>
           <Text style={styles.name}>{profile.name}</Text>
           <Text style={styles.email}>{profile.email}</Text>
@@ -143,7 +228,6 @@ const ProfileScreen = () => {
         <TouchableOpacity
           style={styles.editButton}
           onPress={() => {
-            // In a full implementation, navigate to edit profile screen
             Alert.alert('Coming Soon', 'Profile editing will be available soon!');
           }}
         >
@@ -278,6 +362,24 @@ const styles = StyleSheet.create({
   avatarEmoji: {
     fontSize: 40,
   },
+  avatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  editBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: colors.primary,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.backgroundSecondary,
+  },
   headerInfo: {
     flex: 1,
   },
@@ -399,4 +501,3 @@ const styles = StyleSheet.create({
 });
 
 export default ProfileScreen;
-

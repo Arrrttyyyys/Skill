@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -33,10 +33,10 @@ const getGradientColors = (name) => {
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
-  
+
   const hue1 = Math.abs(hash % 360);
   const hue2 = (hue1 + 60) % 360;
-  
+
   return [
     `hsl(${hue1}, 70%, 50%)`,
     `hsl(${hue2}, 70%, 45%)`,
@@ -49,21 +49,21 @@ const SwipeScreen = () => {
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const navigation = useNavigation();
-  
+
   // Animation values for swipe
   const position = useRef(new Animated.ValueXY()).current;
   const rotate = position.x.interpolate({
     inputRange: [-200, 0, 200],
     outputRange: ['-10deg', '0deg', '10deg'],
   });
-  
+
   // Opacity for like/pass overlays
   const likeOpacity = position.x.interpolate({
     inputRange: [0, SWIPE_THRESHOLD],
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
-  
+
   const passOpacity = position.x.interpolate({
     inputRange: [-SWIPE_THRESHOLD, 0],
     outputRange: [1, 0],
@@ -88,28 +88,17 @@ const SwipeScreen = () => {
     }
   };
 
-  const handleSwipe = async (direction, animated = true) => {
-    if (currentIndex >= deck.length) {
-      await loadDeck();
-      return;
-    }
+  const handleSwipe = (direction) => {
+    const x = direction === 'right' ? width + 100 : -width - 100;
 
-    const currentCard = deck[currentIndex];
-
-    // Always animate when swiping
-    const currentX = position.x._value || 0;
-    const targetX = direction === 'right' ? width + 100 : direction === 'left' ? -width - 100 : 0;
-    
     Animated.timing(position, {
-      toValue: { 
-        x: targetX,
-        y: 0, // Keep it horizontal
-      },
-      duration: 200,
+      toValue: { x, y: 0 },
+      duration: 250,
       useNativeDriver: false,
     }).start(() => {
       position.setValue({ x: 0, y: 0 });
-      performSwipe(direction, currentCard);
+      // No need to reset offset here as we flattened it in release
+      performSwipe(direction, deck[currentIndex]);
     });
   };
 
@@ -121,7 +110,6 @@ const SwipeScreen = () => {
         // Gen Z style notification - less intrusive
         if (Platform.OS === 'web') {
           // Use a toast-style notification instead of alert
-          console.log(`💚 Skill Match with ${currentCard.name}!`);
         } else {
           Alert.alert('💚', `It's a Skill Match with ${currentCard.name}!`, [
             {
@@ -137,60 +125,68 @@ const SwipeScreen = () => {
     }
     // Swipe left = pass (cross) - just move to next card, no action needed
 
-    setCurrentIndex(currentIndex + 1);
+    setCurrentIndex(prevIndex => prevIndex + 1);
   };
 
   // Pan responder for drag/swipe on web and mobile
-  const panResponder = useRef(
+  const panResponder = useMemo(() =>
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
+      // Ask to be the responder:
+      onStartShouldSetPanResponder: () => false, // Let children handle clicks/scrolls initially
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2;
+        return Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10;
+      },
+      // Capture the gesture if it looks like a horizontal swipe, preventing child ScrollViews from scrolling
+      onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+        const isHorizontalSwipe = Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 10;
+        return isHorizontalSwipe;
       },
       onPanResponderGrant: () => {
-        // Reset position when starting to drag
         position.setOffset({ x: position.x._value, y: position.y._value });
         position.setValue({ x: 0, y: 0 });
       },
-      onPanResponderMove: (_, gestureState) => {
-        // Only allow horizontal swiping (left/right)
-        position.setValue({ x: gestureState.dx, y: gestureState.dy * 0.2 }); // Reduce vertical movement
+      onPanResponderMove: (evt, gestureState) => {
+        position.setValue({ x: gestureState.dx, y: gestureState.dy });
       },
       onPanResponderRelease: (_, gestureState) => {
-        // Flatten offset
-        position.flattenOffset();
-        
-        const swipeDistance = gestureState.dx;
-        const swipeVelocity = gestureState.vx;
-        
-        // Check both distance and velocity for more responsive swiping
-        const isSwipeRight = swipeDistance > SWIPE_THRESHOLD || (swipeDistance > 30 && swipeVelocity > 0.5);
-        const isSwipeLeft = swipeDistance < -SWIPE_THRESHOLD || (swipeDistance < -30 && swipeVelocity < -0.5);
-        
-        // Swipe right = like (heart)
+        position.flattenOffset(); // Merge offset into value
+
+        const { dx, vx } = gestureState;
+
+        // Check swipe threshold - lowered to 80
+        // Also check velocity for flick gestures
+        const isSwipeRight = dx > 80 || (dx > 20 && vx > 0.5);
+        const isSwipeLeft = dx < -80 || (dx < -20 && vx < -0.5);
+
         if (isSwipeRight) {
           handleSwipe('right');
-        } 
-        // Swipe left = pass (cross)
-        else if (isSwipeLeft) {
+        } else if (isSwipeLeft) {
           handleSwipe('left');
-        } 
-        // Not enough swipe, snap back
-        else {
+        } else {
+          // Reset if not swiped enough
           Animated.spring(position, {
             toValue: { x: 0, y: 0 },
-            friction: 8,
-            tension: 40,
+            friction: 5,
             useNativeDriver: false,
           }).start();
         }
       },
-    })
-  ).current;
+      onPanResponderTerminate: () => {
+        // Snap back if gesture is terminated
+        Animated.spring(position, {
+          toValue: { x: 0, y: 0 },
+          friction: 8,
+          tension: 40,
+          useNativeDriver: false,
+        }).start();
+      },
+    }),
+    [currentIndex, deck]
+  );
 
   const calculateCompatibility = (compatibility) => {
-    const totalMatches = (compatibility.iCanTeachThem?.length || 0) + 
-                        (compatibility.theyCanTeachMe?.length || 0);
+    const totalMatches = (compatibility.iCanTeachThem?.length || 0) +
+      (compatibility.theyCanTeachMe?.length || 0);
     const maxPossible = 10; // Assuming max 10 skills
     return Math.min(100, Math.round((totalMatches / maxPossible) * 100));
   };
@@ -204,7 +200,7 @@ const SwipeScreen = () => {
     const gradientColors = getGradientColors(profile.name);
     const teachesSkills = profile.skills?.filter((s) => s.type === 'TEACH') || [];
     const learnsSkills = profile.skills?.filter((s) => s.type === 'LEARN') || [];
-    
+
     // Gen Z gradient - more vibrant and modern
     const genZGradient = [
       `hsl(${(compatScore * 3.6) % 360}, 85%, 55%)`,
@@ -217,28 +213,28 @@ const SwipeScreen = () => {
       try {
         const hsl = color.match(/\d+/g);
         if (!hsl || hsl.length < 3) return '#4FD1C5'; // fallback
-        
+
         const h = parseInt(hsl[0]) / 360;
         const s = parseInt(hsl[1]) / 100;
         const l = parseInt(hsl[2]) / 100;
-        
+
         const c = (1 - Math.abs(2 * l - 1)) * s;
         const x = c * (1 - Math.abs((h * 6) % 2 - 1));
         const m = l - c / 2;
-        
+
         let r, g, b;
-        if (h < 1/6) { r = c; g = x; b = 0; }
-        else if (h < 2/6) { r = x; g = c; b = 0; }
-        else if (h < 3/6) { r = 0; g = c; b = x; }
-        else if (h < 4/6) { r = 0; g = x; b = c; }
-        else if (h < 5/6) { r = x; g = 0; b = c; }
+        if (h < 1 / 6) { r = c; g = x; b = 0; }
+        else if (h < 2 / 6) { r = x; g = c; b = 0; }
+        else if (h < 3 / 6) { r = 0; g = c; b = x; }
+        else if (h < 4 / 6) { r = 0; g = x; b = c; }
+        else if (h < 5 / 6) { r = x; g = 0; b = c; }
         else { r = c; g = 0; b = x; }
-        
+
         const toHex = (n) => {
           const hex = Math.round((n + m) * 255).toString(16);
           return hex.length === 1 ? '0' + hex : hex;
         };
-        
+
         return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
       } catch (error) {
         console.error('Error converting color:', color, error);
@@ -261,7 +257,7 @@ const SwipeScreen = () => {
 
     return (
       <CardComponent
-        key={profile.id}
+        key={`${profile.id}-${index}`}
         {...(index === currentIndex ? panResponder.panHandlers : {})}
         style={[
           styles.card,
@@ -284,11 +280,11 @@ const SwipeScreen = () => {
               const x = c * (1 - Math.abs((h * 6) % 2 - 1));
               const m = l - c / 2;
               let r, g, b;
-              if (h < 1/6) { r = c; g = x; b = 0; }
-              else if (h < 2/6) { r = x; g = c; b = 0; }
-              else if (h < 3/6) { r = 0; g = c; b = x; }
-              else if (h < 4/6) { r = 0; g = x; b = c; }
-              else if (h < 5/6) { r = x; g = 0; b = c; }
+              if (h < 1 / 6) { r = c; g = x; b = 0; }
+              else if (h < 2 / 6) { r = x; g = c; b = 0; }
+              else if (h < 3 / 6) { r = 0; g = c; b = x; }
+              else if (h < 4 / 6) { r = 0; g = x; b = c; }
+              else if (h < 5 / 6) { r = x; g = 0; b = c; }
               else { r = c; g = 0; b = x; }
               const toHex = (n) => {
                 const hex = Math.round((n + m) * 255).toString(16);
@@ -303,7 +299,7 @@ const SwipeScreen = () => {
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
         />
-        
+
         {/* Top Color Wash Layer */}
         <LinearGradient
           colors={['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0.05)', 'rgba(0, 0, 0, 0.1)']}
@@ -312,7 +308,7 @@ const SwipeScreen = () => {
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
-        
+
         {/* Like Overlay (Heart) - Shows when swiping right */}
         {index === currentIndex && (
           <Animated.View
@@ -331,7 +327,7 @@ const SwipeScreen = () => {
             </View>
           </Animated.View>
         )}
-        
+
         {/* Pass Overlay (Cross) - Shows when swiping left */}
         {index === currentIndex && (
           <Animated.View
@@ -406,7 +402,7 @@ const SwipeScreen = () => {
               {/* Left: Skills */}
               <View style={styles.skillsColumn}>
                 <Text style={styles.sectionTitle}>Skills</Text>
-                <ScrollView 
+                <ScrollView
                   style={styles.skillsList}
                   showsVerticalScrollIndicator={false}
                 >
@@ -423,7 +419,7 @@ const SwipeScreen = () => {
               {/* Right: Interests */}
               <View style={styles.interestsColumn}>
                 <Text style={styles.sectionTitle}>Interests</Text>
-                <ScrollView 
+                <ScrollView
                   style={styles.interestsList}
                   showsVerticalScrollIndicator={false}
                 >
@@ -570,6 +566,12 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.15)', // Subtle border for depth
     cursor: Platform.OS === 'web' ? 'grab' : 'default',
+    // Web-specific props to prevent browser handling of gestures
+    ...(Platform.OS === 'web' ? {
+      userSelect: 'none',
+      touchAction: 'pan-y', // Allow vertical scroll but handle horizontal in JS
+      draggable: false,
+    } : {}),
   },
   cardGrid: {
     flex: 1,

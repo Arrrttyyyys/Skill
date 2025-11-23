@@ -1,9 +1,11 @@
 import React, { Component } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from './src/context/AuthContext';
+import { SocketProvider } from './src/context/SocketContext';
 import Navigation from './src/navigation/Navigation';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet, View, Text } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -39,12 +41,14 @@ class ErrorBoundary extends Component {
 export default function App() {
   return (
     <ErrorBoundary>
-      <GestureHandlerRootView style={styles.container}>
+      <SafeAreaProvider>
         <AuthProvider>
-          <Navigation />
-          <StatusBar style="auto" />
+          <SocketProvider>
+            <Navigation />
+            <StatusBar style="light" />
+          </SocketProvider>
         </AuthProvider>
-      </GestureHandlerRootView>
+      </SafeAreaProvider>
     </ErrorBoundary>
   );
 }

@@ -8,7 +8,16 @@ const sessionRoutes = require('./routes/sessions');
 const messageRoutes = require('./routes/messages');
 const feedbackRoutes = require('./routes/feedback');
 
+const http = require('http');
+const initializeSocket = require('./socket');
+
 const app = express();
+const server = http.createServer(app);
+const io = initializeSocket(server);
+
+// Make io available in routes
+app.set('io', io);
+
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
@@ -26,7 +35,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Skillera API is running' });
 });
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Skillera API server running on port ${PORT}`);
 });
 

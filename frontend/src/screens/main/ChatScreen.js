@@ -14,6 +14,7 @@ import { colors } from '../../theme/colors';
 import api from '../../config/api';
 import { useAuth } from '../../context/AuthContext';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useSocket } from '../../context/SocketContext';
 
 const ChatScreen = ({ route, navigation }) => {
   const { matchId, buddy } = route.params;
@@ -22,24 +23,52 @@ const ChatScreen = ({ route, navigation }) => {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const { user } = useAuth();
+  const { socket } = useSocket();
   const flatListRef = useRef(null);
 
   useEffect(() => {
     navigation.setOptions({ title: buddy.name });
     loadMessages();
-    
-    // Poll for new messages every 3 seconds
-    const interval = setInterval(loadMessages, 3000);
-    return () => clearInterval(interval);
-  }, [matchId]);
+
+    if (socket) {
+      socket.emit('join_room', matchId);
+
+      const handleNewMessage = (message) => {
+        setMessages((prevMessages) => {
+          if (prevMessages.some(m => m.id === message.id)) {
+            return prevMessages;
+          }
+          return [...prevMessages, message];
+        });
+
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      };
+
+      socket.on('new_message', handleNewMessage);
+
+      return () => {
+        socket.off('new_message', handleNewMessage);
+      };
+    }
+  }, [matchId, socket]);
 
   const loadMessages = async () => {
     try {
       const response = await api.get(`/messages/${matchId}`);
+      // API returns asc, we want desc for inverted list or handle accordingly
+      // The original code didn't invert, so let's keep it consistent but check how FlatList is used.
+      // Original FlatList inverted={false}, so messages should be oldest to newest?
+      // Wait, original code:
+      // orderBy: { createdAt: 'asc' } in backend
+      // FlatList inverted={false}
+      // So list is [Oldest, ..., Newest]
+      // But my socket update logic above does [Newest, ...Oldest] which is wrong for inverted=false.
+
       setMessages(response.data);
       setLoading(false);
-      
-      // Scroll to bottom
+
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);

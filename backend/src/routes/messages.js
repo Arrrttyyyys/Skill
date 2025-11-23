@@ -149,6 +149,10 @@ router.post('/', authMiddleware, async (req, res) => {
       },
     });
 
+    // Emit socket event
+    const io = req.app.get('io');
+    io.to(matchId).emit('new_message', message);
+
     res.json(message);
   } catch (error) {
     console.error('Send message error:', error);

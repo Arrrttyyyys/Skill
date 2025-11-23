@@ -6,7 +6,7 @@ A full-stack skill-sharing platform where people connect by swiping on profiles 
 
 - **Frontend**: React Native + React Native Web (Expo)
 - **Backend**: Node.js + Express
-- **Database**: SQLite + Prisma ORM (easy local setup)
+- **Database**: PostgreSQL + Prisma ORM
 - **Auth**: JWT tokens
 - **UI**: Dark theme with neon green, hot pink, and electric blue accents
 
@@ -17,6 +17,7 @@ Before you begin, make sure you have the following installed:
 - **Node.js** (v18 or higher) - [Download](https://nodejs.org/)
 - **npm** (comes with Node.js) or **yarn**
 - **Git** - [Download](https://git-scm.com/)
+- **PostgreSQL** - [Download](https://www.postgresql.org/download/)
 
 > **Note**: For mobile development (iOS/Android), you'll also need Expo CLI and Xcode/Android Studio, but these are optional for web development.
 
@@ -42,15 +43,34 @@ npm install
 ```
 
 3. **Set up the database:**
-   The project uses SQLite for easy local development. The database file (`dev.db`) will be created automatically.
+   The project now uses **PostgreSQL**. You need to have PostgreSQL installed and running.
 
-```bash
-# Generate Prisma Client
-npx prisma generate
+   **Mac (via Homebrew):**
+   ```bash
+   brew install postgresql@14
+   brew services start postgresql@14
+   createdb skillera
+   ```
 
-# Run database migrations
-npx prisma migrate dev
-```
+   **Windows/Linux:**
+   Install PostgreSQL from the [official website](https://www.postgresql.org/download/) and create a database named `skillera`.
+
+   **Configure Environment:**
+   Create a `.env` file in the `backend` directory:
+   ```bash
+   cp .env.example .env
+   # Or create it manually with:
+   # DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/skillera?schema=public"
+   ```
+
+   **Run Migrations:**
+   ```bash
+   # Generate Prisma Client
+   npx prisma generate
+
+   # Run database migrations
+   npx prisma migrate dev
+   ```
 
 4. **Seed the database with demo data:**
    This creates demo accounts, skills, matches, and sample data:
@@ -160,11 +180,13 @@ npm run web
 **Database errors:**
 ```bash
 # Reset the database (WARNING: deletes all data)
-cd backend
-rm prisma/dev.db
-npx prisma migrate dev
+npx prisma migrate reset
 npm run seed
 ```
+
+**Connection Refused:**
+- Make sure PostgreSQL is running: `brew services list`
+- Check your `.env` file has the correct credentials
 
 **Port 3001 already in use:**
 - Kill the process: `lsof -ti:3001 | xargs kill -9`
@@ -361,7 +383,7 @@ Skillera/
 
 ## Development Notes
 
-- **Database**: Uses SQLite (`prisma/dev.db`) for easy local development - no database server required!
+- **Database**: Uses PostgreSQL (requires local server)
 - **Authentication**: JWT tokens stored in AsyncStorage (React Native) or localStorage (Web)
 - **API Base URL**: Configured in `frontend/src/config/api.js` (defaults to `http://localhost:3001`)
 - **Navigation**: React Navigation with bottom tabs and stack navigators
